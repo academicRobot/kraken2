@@ -13,7 +13,7 @@ use File::Basename;
 use Getopt::Long;
 
 my $PROG = basename $0;
-my $KRAKEN2_DIR = '#####=KRAKEN2_DIR=#####';
+my $KRAKEN2_DIR = '/gpfs_fs/home/cjoldfield/Programs/kraken2';
 
 # Test to see if the executables got moved, try to recover if we can
 if (! -e "$KRAKEN2_DIR/classify") {
@@ -230,7 +230,7 @@ sub display_help {
 }
 
 sub display_version {
-  print "Kraken version #####=VERSION=#####\n";
+  print "Kraken version 2.1.1\n";
   print "Copyright 2013-2020, Derrick Wood (dwood\@cs.jhu.edu)\n";
   exit 0;
 }

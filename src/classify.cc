@@ -16,6 +16,7 @@
 #include "utilities.h"
 #include "readcounts.h"
 #include "zstr.hpp"
+#include <limits>
 using namespace kraken2;
 
 using std::cout;
@@ -40,6 +41,7 @@ struct Options {
   string taxonomy_filename;
   string options_filename;
   string report_filename;
+  string run_list_filename;
   string classified_output_filename;
   string unclassified_output_filename;
   string kraken_output_filename;
@@ -103,6 +105,37 @@ void ReportStats(struct timeval time1, struct timeval time2,
     ClassificationStats &stats);
 void InitializeOutputs(Options &opts, OutputStreamData &outputs, SequenceFormat format);
 void MaskLowQualityBases(Sequence &dna, int minimum_quality_score);
+/*
+//https://stackoverflow.com/a/236803
+template <typename Out>
+void split(const std::string &s, char delim, Out result) {
+    std::istringstream iss(s);
+    std::string item;
+    while (std::getline(iss, item, delim)) {
+        *result++ = item;
+    }
+}
+
+std::vector<std::string> split(const std::string &s, char delim) {
+    std::vector<std::string> elems;
+    split(s, delim, std::back_inserter(elems));
+    return elems;
+}
+//------------------------------
+*/
+
+vector<string> split_file_temlpate(std::string filetemplate){
+  vector<string> fields = SplitString(filetemplate, "#", 3);
+  if (fields.size() < 2) {
+    errx(EX_DATAERR, "filetemplate format missing # character: %s",
+         filetemplate.c_str());
+  }
+  else if (fields.size() > 2) {
+    errx(EX_DATAERR, "filetemplate format has >1 # character: %s",
+         filetemplate.c_str());
+  }
+  return fields;
+}
 
 int main(int argc, char **argv) {
   Options opts;
@@ -120,7 +153,6 @@ int main(int argc, char **argv) {
   opts.minimum_hit_groups = 0;
   opts.use_memory_mapping = false;
 
-  taxon_counters_t taxon_counters; // stats per taxon
   ParseCommandLine(argc, argv, opts);
 
   omp_set_num_threads(opts.num_threads);
@@ -141,48 +173,108 @@ int main(int argc, char **argv) {
 
   cerr << " done." << endl;
 
-  ClassificationStats stats = {0, 0, 0};
-
-  OutputStreamData outputs = { false, false, nullptr, nullptr, nullptr, nullptr, &std::cout };
-
   struct timeval tv1, tv2;
-  gettimeofday(&tv1, nullptr);
-  if (optind == argc) {
-    if (opts.paired_end_processing && ! opts.single_file_pairs)
-      errx(EX_USAGE, "paired end processing used with no files specified");
-    ProcessFiles(nullptr, nullptr, hash_ptr, taxonomy, idx_opts, opts, stats, outputs, taxon_counters);
-  }
-  else {
-    for (int i = optind; i < argc; i++) {
-      if (opts.paired_end_processing && ! opts.single_file_pairs) {
-        if (i + 1 == argc) {
-          errx(EX_USAGE, "paired end processing used with unpaired file");
+
+  if(opts.run_list_filename.empty()){
+    taxon_counters_t taxon_counters; // stats per taxon
+
+    OutputStreamData outputs = { false, false, nullptr, nullptr, nullptr, nullptr, &std::cout };
+    ClassificationStats stats = {0, 0, 0};
+    gettimeofday(&tv1, nullptr);
+    if (optind == argc) {
+      if (opts.paired_end_processing && ! opts.single_file_pairs)
+        errx(EX_USAGE, "paired end processing used with no files specified");
+      ProcessFiles(nullptr, nullptr, hash_ptr, taxonomy, idx_opts, opts, stats, outputs, taxon_counters);
+    }
+    else {
+      for (int i = optind; i < argc; i++) {
+        if (opts.paired_end_processing && ! opts.single_file_pairs) {
+          if (i + 1 == argc) {
+            errx(EX_USAGE, "paired end processing used with unpaired file");
+          }
+          ProcessFiles(argv[i], argv[i+1], hash_ptr, taxonomy, idx_opts, opts, stats, outputs, taxon_counters);
+          i += 1;
         }
-        ProcessFiles(argv[i], argv[i+1], hash_ptr, taxonomy, idx_opts, opts, stats, outputs, taxon_counters);
-        i += 1;
+        else {
+          ProcessFiles(argv[i], nullptr, hash_ptr, taxonomy, idx_opts, opts, stats, outputs, taxon_counters);
+        }
       }
+    }
+    gettimeofday(&tv2, nullptr);
+
+    ReportStats(tv1, tv2, stats);
+
+    if (! opts.report_filename.empty()) {
+      if (opts.mpa_style_report)
+        ReportMpaStyle(opts.report_filename, opts.report_zero_counts, taxonomy,
+            taxon_counters);
       else {
-        ProcessFiles(argv[i], nullptr, hash_ptr, taxonomy, idx_opts, opts, stats, outputs, taxon_counters);
+        auto total_unclassified = stats.total_sequences - stats.total_classified;
+        ReportKrakenStyle(opts.report_filename, opts.report_zero_counts,
+            opts.report_kmer_data, taxonomy,
+            taxon_counters, stats.total_sequences, total_unclassified);
       }
     }
   }
-  gettimeofday(&tv2, nullptr);
+  else{
+    if (optind != argc) {
+       errx(EX_USAGE, "no positional arguments with -f");
+    }
+    if(!opts.classified_output_filename.empty() || !opts.classified_output_filename.empty()){
+       errx(EX_USAGE, "no -C or -U arguments with -f");
+    }
+
+    std::vector<string> kot_fields = split_file_temlpate(opts.kraken_output_filename);
+    std::vector<string> rpt_fields = split_file_temlpate(opts.report_filename);
+
+    std::ifstream fls(opts.run_list_filename);
+    std::string line, label, pair1_fn, pair2_fn, unpaired1_fn, unpaired2_fn;
+    while(std::getline(fls, line)){
+      taxon_counters_t taxon_counters; // stats per taxon
+      OutputStreamData outputs = { false, false, nullptr, nullptr, nullptr, nullptr, &std::cout };
+      ClassificationStats stats = {0, 0, 0};
+      gettimeofday(&tv1, nullptr);
+
+      std::vector<std::string> strs = SplitString(line, "\t", std::numeric_limits<size_t>::max());
+      if(strs.size() < 2){
+         errx(EX_USAGE, "error parsing file group file, line '%s'", line.c_str());
+      }
+      std::string label = strs[0];
+      opts.kraken_output_filename = kot_fields[0] + label + kot_fields[1];
+      opts.report_filename = rpt_fields[0] + label + rpt_fields[1];
+
+      strs.erase(strs.begin());
+      for(const string& fn_field: strs){
+        std::vector<std::string> fns = SplitString(fn_field, "|", 3);
+        if(fns.size() == 1){
+          ProcessFiles(fns[0].c_str(), nullptr, hash_ptr, taxonomy, idx_opts, opts, stats, outputs, taxon_counters);
+        }
+        else if(fns.size() == 2){
+      	  ProcessFiles(fns[0].c_str(), fns[1].c_str(), hash_ptr, taxonomy, idx_opts, opts, stats, outputs, taxon_counters);
+        }
+        else{
+          errx(EX_USAGE, "weird field in file group file: '%s'", fn_field.c_str());
+        }
+      }
+      gettimeofday(&tv2, nullptr);
+
+      ReportStats(tv1, tv2, stats);
+
+      if (! opts.report_filename.empty()) {
+        if (opts.mpa_style_report)
+          ReportMpaStyle(opts.report_filename, opts.report_zero_counts, taxonomy,
+              taxon_counters);
+        else {
+          auto total_unclassified = stats.total_sequences - stats.total_classified;
+          ReportKrakenStyle(opts.report_filename, opts.report_zero_counts,
+              opts.report_kmer_data, taxonomy,
+              taxon_counters, stats.total_sequences, total_unclassified);
+        }
+      }
+    } 
+  }
 
   delete hash_ptr;
-
-  ReportStats(tv1, tv2, stats);
-
-  if (! opts.report_filename.empty()) {
-    if (opts.mpa_style_report)
-      ReportMpaStyle(opts.report_filename, opts.report_zero_counts, taxonomy,
-          taxon_counters);
-    else {
-      auto total_unclassified = stats.total_sequences - stats.total_classified;
-      ReportKrakenStyle(opts.report_filename, opts.report_zero_counts,
-          opts.report_kmer_data, taxonomy,
-          taxon_counters, stats.total_sequences, total_unclassified);
-    }
-  }
 
   return 0;
 }
@@ -739,7 +831,7 @@ void MaskLowQualityBases(Sequence &dna, int minimum_quality_score) {
 void ParseCommandLine(int argc, char **argv, Options &opts) {
   int opt;
 
-  while ((opt = getopt(argc, argv, "h?H:t:o:T:p:R:C:U:O:Q:g:nmzqPSMK")) != -1) {
+  while ((opt = getopt(argc, argv, "h?H:t:o:T:p:R:C:U:O:Q:g:f:nmzqPSMK")) != -1) {
     switch (opt) {
       case 'h' : case '?' :
         usage(0);
@@ -769,6 +861,9 @@ void ParseCommandLine(int argc, char **argv, Options &opts) {
         break;
       case 'g' :
         opts.minimum_hit_groups = atoi(optarg);
+        break;
+      case 'f' :
+        opts.run_list_filename = optarg;
         break;
       case 'P' :
         opts.paired_end_processing = true;
@@ -831,6 +926,7 @@ void usage(int exit_code) {
        << "* -H filename      Kraken 2 index filename" << endl
        << "* -t filename      Kraken 2 taxonomy filename" << endl
        << "* -o filename      Kraken 2 options filename" << endl
+       << "  -f filename      File of file groups, each line is a group, no other input files" << endl
        << "  -q               Quick mode" << endl
        << "  -M               Use memory mapping to access hash & taxonomy" << endl
        << "  -T NUM           Confidence score threshold (def. 0)" << endl
