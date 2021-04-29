@@ -15,6 +15,7 @@
 #include "reports.h"
 #include "utilities.h"
 #include "readcounts.h"
+#include "zstr.hpp"
 using namespace kraken2;
 
 using std::cout;
@@ -86,18 +87,18 @@ struct OutputData {
 void ParseCommandLine(int argc, char **argv, Options &opts);
 void usage(int exit_code=EX_USAGE);
 void ProcessFiles(const char *filename1, const char *filename2,
-    KeyValueStore *hash, Taxonomy &tax,
+    const KeyValueStore *hash, const Taxonomy &tax,
     IndexOptions &idx_opts, Options &opts, ClassificationStats &stats,
     OutputStreamData &outputs, taxon_counters_t &total_taxon_counters);
 taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
-    KeyValueStore *hash, Taxonomy &tax, IndexOptions &idx_opts,
+    const KeyValueStore *hash, const Taxonomy &tax, IndexOptions &idx_opts,
     Options &opts, ClassificationStats &stats, MinimizerScanner &scanner,
     vector<taxid_t> &taxa, taxon_counts_t &hit_counts,
     vector<string> &tx_frames, taxon_counters_t &my_taxon_counts);
 void AddHitlistString(ostringstream &oss, vector<taxid_t> &taxa,
-    Taxonomy &taxonomy);
+    const Taxonomy &taxonomy);
 taxid_t ResolveTree(taxon_counts_t &hit_counts,
-    Taxonomy &tax, size_t total_minimizers, Options &opts);
+    const Taxonomy &tax, size_t total_minimizers, Options &opts);
 void ReportStats(struct timeval time1, struct timeval time2,
     ClassificationStats &stats);
 void InitializeOutputs(Options &opts, OutputStreamData &outputs, SequenceFormat format);
@@ -135,8 +136,8 @@ int main(int argc, char **argv) {
   idx_opt_fs.read((char *) &idx_opts, opts_filesize);
   opts.use_translated_search = ! idx_opts.dna_db;
 
-  Taxonomy taxonomy(opts.taxonomy_filename, opts.use_memory_mapping);
-  KeyValueStore *hash_ptr = new CompactHashTable(opts.index_filename, opts.use_memory_mapping);
+  const Taxonomy taxonomy(opts.taxonomy_filename, opts.use_memory_mapping);
+  const KeyValueStore *hash_ptr = new CompactHashTable(opts.index_filename, opts.use_memory_mapping);
 
   cerr << " done." << endl;
 
@@ -219,20 +220,20 @@ void ReportStats(struct timeval time1, struct timeval time2,
 }
 
 void ProcessFiles(const char *filename1, const char *filename2,
-    KeyValueStore *hash, Taxonomy &tax,
+    const KeyValueStore *hash, const Taxonomy &tax,
     IndexOptions &idx_opts, Options &opts, ClassificationStats &stats,
     OutputStreamData &outputs,
     taxon_counters_t &total_taxon_counters)
 {
-  std::istream *fptr1 = nullptr, *fptr2 = nullptr;
+  std::unique_ptr<std::istream> fptr1, fptr2;
 
   if (filename1 == nullptr)
-    fptr1 = &std::cin;
+    fptr1 = std::unique_ptr<std::istream>(new zstr::istream(std::cin));
   else {
-    fptr1 = new std::ifstream(filename1);
+    fptr1 = std::unique_ptr<std::istream>(new zstr::ifstream(filename1));
   }
   if (opts.paired_end_processing && ! opts.single_file_pairs) {
-    fptr2 = new std::ifstream(filename2);
+    fptr2 = std::unique_ptr<std::istream>(new zstr::ifstream(filename2));
   }
 
   // The priority queue for output is designed to ensure fragment data
@@ -415,10 +416,10 @@ void ProcessFiles(const char *filename1, const char *filename2,
     }  // end while
   }  // end parallel block
   omp_destroy_lock(&output_lock);
-  if (fptr1 != nullptr)
+/*  if (fptr1 != nullptr)
     delete fptr1;
   if (fptr2 != nullptr)
-    delete fptr2;
+    delete fptr2;*/
   if (outputs.kraken_output != nullptr)
     (*outputs.kraken_output) << std::flush;
   if (outputs.classified_output1 != nullptr)
@@ -432,7 +433,7 @@ void ProcessFiles(const char *filename1, const char *filename2,
 }
 
 taxid_t ResolveTree(taxon_counts_t &hit_counts,
-    Taxonomy &taxonomy, size_t total_minimizers, Options &opts)
+    const Taxonomy &taxonomy, size_t total_minimizers, Options &opts)
 {
   taxid_t max_taxon = 0;
   uint32_t max_score = 0;
@@ -495,7 +496,7 @@ std::string TrimPairInfo(std::string &id) {
 }
 
 taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
-    KeyValueStore *hash, Taxonomy &taxonomy, IndexOptions &idx_opts,
+    const KeyValueStore *hash, const Taxonomy &taxonomy, IndexOptions &idx_opts,
     Options &opts, ClassificationStats &stats, MinimizerScanner &scanner,
     vector<taxid_t> &taxa, taxon_counts_t &hit_counts,
     vector<string> &tx_frames,
@@ -630,7 +631,7 @@ taxid_t ClassifySequence(Sequence &dna, Sequence &dna2, ostringstream &koss,
 }
 
 void AddHitlistString(ostringstream &oss, vector<taxid_t> &taxa,
-    Taxonomy &taxonomy)
+    const Taxonomy &taxonomy)
 {
   auto last_code = taxa[0];
   auto code_count = 1;

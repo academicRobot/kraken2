@@ -1,6 +1,7 @@
 CXX = g++
 CXXFLAGS = -fopenmp -Wall -std=c++11 -O3
 CXXFLAGS += -DLINEAR_PROBING
+CXXFLAGS += -Izstr
 
 .PHONY: all clean install
 
@@ -25,7 +26,7 @@ reports.o: reports.cc reports.h kraken2_data.h
 aa_translate.o: aa_translate.cc aa_translate.h
 utilities.o: utilities.cc utilities.h
 
-classify.o: classify.cc kraken2_data.h kv_store.h taxonomy.h seqreader.h mmscanner.h compact_hash.h aa_translate.h reports.h utilities.h readcounts.h
+classify.o: classify.cc kraken2_data.h kv_store.h taxonomy.h seqreader.h mmscanner.h compact_hash.h aa_translate.h reports.h utilities.h readcounts.h zstr/zstr.hpp 
 dump_table.o: dump_table.cc compact_hash.h taxonomy.h mmscanner.h kraken2_data.h reports.h
 estimate_capacity.o: estimate_capacity.cc kv_store.h mmscanner.h seqreader.h utilities.h
 build_db.o: build_db.cc taxonomy.h mmscanner.h seqreader.h compact_hash.h kv_store.h kraken2_data.h utilities.h
@@ -35,7 +36,7 @@ build_db: build_db.o mmap_file.o compact_hash.o taxonomy.o seqreader.o mmscanner
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
 classify: classify.o reports.o hyperloglogplus.o mmap_file.o compact_hash.o taxonomy.o seqreader.o mmscanner.o omp_hack.o aa_translate.o utilities.o
-	$(CXX) $(CXXFLAGS) -o $@ $^
+	$(CXX) $(CXXFLAGS) -lz -o $@ $^
 
 estimate_capacity: estimate_capacity.o seqreader.o mmscanner.o omp_hack.o utilities.o
 	$(CXX) $(CXXFLAGS) -o $@ $^

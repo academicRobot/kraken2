@@ -13,7 +13,7 @@ using std::map;
 
 namespace kraken2 {
 
-taxon_counts_t GetCladeCounts(Taxonomy &tax, taxon_counts_t &call_counts) {
+taxon_counts_t GetCladeCounts(const Taxonomy &tax, taxon_counts_t &call_counts) {
   taxon_counts_t clade_counts;
 
   for (auto &kv_pair : call_counts) {
@@ -29,7 +29,7 @@ taxon_counts_t GetCladeCounts(Taxonomy &tax, taxon_counts_t &call_counts) {
   return clade_counts;
 }
 
-taxon_counters_t GetCladeCounters(Taxonomy &tax, taxon_counters_t &call_counters) {
+taxon_counters_t GetCladeCounters(const Taxonomy &tax, taxon_counters_t &call_counters) {
   taxon_counters_t clade_counters;
 
   for (auto &kv_pair : call_counters) {
@@ -49,7 +49,7 @@ void PrintMpaStyleReportLine(ofstream &ofs, uint64_t clade_count, const string &
   ofs << taxonomy_line << "\t" << clade_count << std::endl;
 }
 
-void MpaReportDFS(taxid_t taxid, ofstream &ofs, bool report_zeros, Taxonomy &taxonomy,
+void MpaReportDFS(taxid_t taxid, ofstream &ofs, bool report_zeros, const Taxonomy &taxonomy,
                   taxon_counts_t &clade_counts, vector<string> &taxonomy_names)
 {
   // Clade count of 0 means all subtree nodes have clade count of 0
@@ -104,7 +104,7 @@ void MpaReportDFS(taxid_t taxid, ofstream &ofs, bool report_zeros, Taxonomy &tax
     taxonomy_names.pop_back();
 }
 
-void ReportMpaStyle(string filename, bool report_zeros, Taxonomy &taxonomy, taxon_counters_t &call_counters) {
+void ReportMpaStyle(string filename, bool report_zeros, const Taxonomy &taxonomy, taxon_counters_t &call_counters) {
   taxon_counts_t call_counts;
   for (auto &kv_pair : call_counters) {
     call_counts[kv_pair.first] = kv_pair.second.readCount();
@@ -140,14 +140,14 @@ void PrintKrakenStyleReportLine(ofstream &ofs, bool report_kmer_data,
 // Depth-first search of taxonomy tree, reporting info at each node
 void KrakenReportDFS(uint32_t taxid, ofstream &ofs, bool report_zeros,
     bool report_kmer_data,
-    Taxonomy &taxonomy, taxon_counters_t &clade_counters,
+    const Taxonomy &taxonomy, taxon_counters_t &clade_counters,
     taxon_counters_t &call_counters, uint64_t total_seqs,
     char rank_code, int rank_depth, int depth)
 {
   // Clade count of 0 means all subtree nodes have clade count of 0
   if (! report_zeros && clade_counters[taxid].readCount() == 0)
     return;
-  TaxonomyNode node = taxonomy.nodes()[taxid];
+  const TaxonomyNode node = taxonomy.nodes()[taxid];
   string rank = taxonomy.rank_data() + node.rank_offset;
 
   if (rank == "superkingdom") { rank_code = 'D'; rank_depth = 0; }
@@ -192,7 +192,7 @@ void KrakenReportDFS(uint32_t taxid, ofstream &ofs, bool report_zeros,
 }
 
 void ReportKrakenStyle(string filename, bool report_zeros, bool report_kmer_data,
-    Taxonomy &taxonomy, taxon_counters_t &call_counters, uint64_t total_seqs,
+    const Taxonomy &taxonomy, taxon_counters_t &call_counters, uint64_t total_seqs,
     uint64_t total_unclassified)
 {
   taxon_counters_t clade_counters = GetCladeCounters(taxonomy, call_counters);
